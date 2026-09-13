@@ -8,7 +8,7 @@ import pandas as pd  # 표(엑셀 같은 것)를 다루는 라이브러리. 관�
 import numpy as np  # 숫자 배열을 빠르게 계산하는 라이브러리. 관례상 np
 
 DATA = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "수업용데이터"
+    os.path.dirname(os.path.abspath(__file__)), "수업용데이터"
 )  # data/수업용데이터/
 
 
@@ -215,3 +215,8 @@ print("    y 앞 5개:", y[:5])
 # 몇 행인지와, 그 행들의 측정ID / 설비명 / 진동 / 상태 를 출력하면 됩니다.
 #
 #   힌트: 3번에서 한 것과 같습니다. df[조건] 이면 조건에 맞는 행만 남습니다.
+
+print("\n[실습]")
+
+df = pd.read_csv(경로("12_제조센서_전처리.csv"), encoding="utf-8-sig")
+print(df.loc[df["진동"] > 3.2, ["측정ID", "설비명", "진동", "상태"]])

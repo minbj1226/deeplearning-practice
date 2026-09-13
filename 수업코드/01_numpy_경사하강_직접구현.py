@@ -107,10 +107,10 @@ h = 0.0001  # 아주 살짝만 밟는다(보폭) (크게 밟으면 지금 자리
 
 def grad(x, y, w, b):
     # w만 밀어본 기울기 (w의 편미분)
-    gw = (error(x, y, w + h, b)) - (error(x, y, w - h, b)) / (2 * h)
+    gw = (error(x, y, w + h, b) - error(x, y, w - h, b)) / (2 * h)
 
     # b만 밀어본 기울기 (b의 편미분)
-    gb = error(x, y, w, b + h) - error(x, y, w, b - h) / (2 * h)
+    gb = (error(x, y, w, b + h) - error(x, y, w, b - h)) / (2 * h)
     return gw, gb  # 둘을 묶어서 돌려줌 = 그래디언트
 
 
@@ -155,7 +155,9 @@ print(
 # 공기온도가 300 근처의 큰 숫자라 w 방향 기울기가 너무 커서, 보폭을 조금만 키워도 튕겨 나간다.
 # 일부러 실패해본다.
 w, b = 1.0, 9.0
-with np.errstate(over="ignore", invalid="ignore"):
+with np.errstate(
+    over="ignore", invalid="ignore"
+):  # errstate는 수치 계산 경고를 일정 코드 구간에서만 제어하는 기능
     for _ in range(20):
         gw, gb = grad(x, y, w, b)
         w, b = w - 0.001 * gw, b - 0.001 * gb
@@ -314,5 +316,16 @@ print(
 # 손실을 비교하세요.
 #
 #   힌트: 학습(z, y, lr=..., epochs=300, 보여주기=False) 로 부르면 됩니다.
-print("실습 문제")
-train(z, y, lr=0.5)
+print("\n실습 문제")
+print("lr이 0.5일 때")
+train(z, y, lr=0.5, epochs=300, show=True)
+
+print("lr이 0.9일 때")
+train(z, y, lr=0.9, epochs=300, show=True)
+
+print("lr이 1.0일 때")
+train(z, y, lr=1.0, epochs=300, show=True)
+
+# lr을 0.5로 설정할때 첫 번째부터 최적값에 거의 정확히 도착
+# lr을 0.9로 설정하면 초반에 크게 진동하지만 점차 진폭이 줄어들면서 수렴
+# lr을 1.0으로 설정하면 두 지점을 계속 왕복하며 수렴하지 않음
