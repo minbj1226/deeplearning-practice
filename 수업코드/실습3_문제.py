@@ -63,7 +63,7 @@ feature_name = [
 ]
 #      X.shape 가 (558, 5), y.shape 가 (558,) 인지 확인하세요.
 # TODO
-X = d[feature_name]
+X = d[feature_name].values.astype(float)
 y = (d["EQP_CD"] == "P1-SP2-EXF01").astype(float).values
 
 print("\n[A2]")
@@ -77,15 +77,14 @@ print(y.shape)
 #        (1) 두 호기 차이가 제일 큰 특징은 무엇입니까?
 #        (2) 03 에서 고장 설비의 공구마모는 224, 정상은 113 — 두 배 차이였습니다.
 #            여기 차이는 그만큼 뚜렷한가요? 점수가 몇 % 쯤 나올 것 같습니까?
-#      내 예상:
+#      내 예상: (1) 두 호기 차이가 제일 큰 특징: VIB-FNDE_RMS
+#              (2) 24% 정도의 차이가 나므로 03에서의 사례만큼 뚜렷하지는 않다.
 # TODO
 print("\n[A3]")
 for feature in feature_name:
     print(f"1호기 {feature} 평균: {d[y == 0][feature].mean()}")
     print(f"2호기 {feature} 평균: {d[y == 1][feature].mean()}")
 
-# (1) 두 호기 차이가 제일 큰 특징: VIB-FNDE_RMS
-# (2) 24% 정도의 차이가 나므로 03에서의 사례만큼 뚜렷하지는 않다.
 
 # =====================================================================
 # B. 나누고 표준화 — 03 에서 한 것과 똑같이
@@ -102,7 +101,7 @@ for feature in feature_name:
 #        te = np.concatenate([i1[195:], i0[195:]])
 #      학습용 몇 건(2호기 몇), 시험용 몇 건(2호기 몇) 인지 찍으세요.
 # TODO
-print("[B1]")
+print("\n[B1]")
 
 rng = np.random.RandomState(3)
 i1 = rng.permutation(np.where(y == 1)[0])
@@ -110,12 +109,20 @@ i0 = rng.permutation(np.where(y == 0)[0])
 tr = np.concatenate([i1[:195], i0[:195]])
 te = np.concatenate([i1[195:], i0[195:]])
 
-print(tr)
-print(te)
+X_train, X_test, y_train, y_test = (
+    X[tr],
+    X[te],
+    y[tr],
+    y[te],
+)
 
+print(f"학습용 {len(tr)}건, 시험용 {len(te)}건")
 # [B2] 열별 표준화. ★ mu 와 sd 는 학습용에서만 구합니다 ★ (지금까지와 같은 규칙)
 #      시험용도 학습용의 mu, sd 로 변환합니다.
 # TODO
+mu, sd = X_train.mean(axis=0), X_train.std(axis=0)
+Z_train = (X_train - mu) / sd
+Z_test = (X_test - mu) / sd
 
 
 # =====================================================================
@@ -127,6 +134,45 @@ print(te)
 #      ★ 자주 나는 실수 ★ 손실() 은 확률() 을 부르고, 확률() 은 sigmoid() 를 부릅니다.
 #                        셋 다 가져와야 해요. 하나만 빠뜨리면 NameError.
 # TODO
+def sigmoid(z):
+    return 1 / (1 + np.exp(-z))
+
+
+def pred(Z, w, b):
+    return sigmoid(Z @ w + b)
+
+
+def loss(Z, y, w, b):
+    p = np.clip(pred(Z, w, b), 1e-12, 1 - 1e-12)
+    return -np.mean(y * np.log(p) + (1 - y) * np.log(1 - p))
+
+
+h = 0.0001
+
+
+def grad(Z, y, w, b):
+    gw = np.zeros(len(w))
+    for j in range(len(w)):
+        w1, w2 = w.copy(), w.copy()
+        w1[j] += h
+        w2[j] -= h
+        gw[j] = (loss(Z, y, w1, b) - loss(Z, y, w2, b)) / (2 * h)
+    gb = (loss(Z, y, w, b + h) - loss(Z, y, w, b - h)) / (2 * h)
+    return gw, gb
+
+
+def train(Z, y, lr=0.5, epochs=2000, show=True):
+    w = np.zeros(Z.shape[1])
+    b = 0.0
+    for epoch in range(epochs):
+        gw, gb = grad(Z, y, w, b)
+        w = w - lr * gw
+        b = b - lr * gb
+        if (
+            show and epoch % 400 == 0
+        ):  # 400 바퀴마다 손실 출력. % = 나머지, 400 으로 나눠 떨어질 때만
+            print(f"    epoch {epoch:4d}  손실 {loss(Z, y, w, b):.4f}")
+    return w, b
 
 
 # [C2] 학습용으로 학습(lr=0.5, epochs=2000)하고, 특징별 가중치를 크기순으로 찍으세요.
@@ -135,9 +181,16 @@ print(te)
 #        손실이 몇에서 시작해 몇까지 내려갔습니까?
 #        03 에서는 0.5933 → 0.1157 이었습니다. 여기는요? 이 차이가 뜻하는 게 뭘까요?
 #        힌트: 손실 0.693 이 "전부 반반이라고 답하는 상태" 입니다. 0 에 가까울수록 확신 있게 맞히는 것.
-#      내 답:
+#      내 답: 0.6648 -> 0.5062까지 내려갔다.
 # TODO
+print("\n[C2]")
+w, b = train(Z_train, y_train)
 
+weights = list(zip(feature_name, w))
+weights_sorted = sorted(weights, key=lambda item: abs(item[1]), reverse=True)
+
+for name, weight in weights_sorted:
+    print(f"{name}: {weight:.4f}")
 
 # =====================================================================
 # D. 채점 — 정확도 하나만 보면 안 된다
@@ -146,6 +199,32 @@ print(te)
 #      정확도 / TP(잡음) / FN(놓침) / FP(헛경보) / TN(통과) / 재현율 / 정밀도를 찍으세요.
 #      힌트: 03 의 혼동행렬 대목을 그대로. 네칸() 함수를 쓰면 네 줄로 끝납니다.
 # TODO
+print("\n[D1]")
+p_test = pred(Z_test, w, b)
+judge = (p_test >= 0.5).astype(int)
+
+# 정확도
+정확도 = np.mean(judge == y_test)
+print(f"정확도: {정확도:.3f}")
+
+
+def four_block(y, judge):
+    TP = int(((y == 1) & (judge == 1)).sum())
+    FN = int(((y == 1) & (judge == 0)).sum())
+    FP = int(((y == 0) & (judge == 1)).sum())
+    TN = int(((y == 0) & (judge == 0)).sum())  # .sum() 으로 True 개수 세기
+    return TP, FN, FP, TN
+
+
+TP, FN, FP, TN = four_block(y_test, judge)
+# 재현율 = 실제 고장 중 잡아낸 비율 = TP / (TP+FN)  "놓치지 않았나" <- 제조에선 제일 중요
+print(f"고장 {int(y_test.sum())}대 중  잡음(TP) {TP}  놓침(FN) {FN}")
+print(f"정상 {int((y_test == 0).sum())}대 중 통과(TN) {TN}  헛경보(FP) {FP}")
+
+재현율 = TP / (TP + FN) if TP + FN else 0
+
+정밀도 = TP / (TP + FP) if TP + FP else 0
+print(f"재현율 {재현율:.2f}  정밀도 {정밀도:.2f}")
 
 
 # [D2] 비교용으로 '무조건 1호기라고만 답하는' 게으른 모델의 정확도를 찍으세요.
@@ -156,12 +235,14 @@ print(te)
 #        (2) 03 의 ai4i 에서는 게으른 모델이 정확도 96.7% 였습니다. 여기는 왜 다를까요?
 #        (3) 그럼 "정확도는 믿을 수 없다" 는 교훈은 틀린 건가요?
 #            한 단어를 앞에 붙이면 맞는 문장이 됩니다. 그 단어는?
-#      내 답: (1)
-#             (2)
-#             (3)
+#      내 답: (1) 0.5
+#             (2) ai4i는 정상 데이터가 약 96.7%인 불균형 데이터이고, 현재 데이터는 1호기와 2호기 개수가 균형에 가깝기 때문에
+#             (3) 불균형 데이터에서는 정확도만 믿을 수 없다.
 # TODO
-
-
+게으른판정 = np.zeros_like(y_test, dtype=int)
+print(
+    f"\n[비교] 무조건 정상이라 답하면 → 정확도 {np.mean(게으른판정 == y_test):.3f}, 재현율 0.00 (고장 전부 놓침)"
+)
 # =====================================================================
 # E. 임계값
 # =====================================================================
@@ -171,9 +252,18 @@ print(te)
 #        재현율과 정밀도가 각각 어느 방향으로 움직입니까?
 #        정확도가 제일 높은 임계값과, 재현율이 제일 높은 임계값이 다릅니다.
 #        현장에 내보낸다면 어느 쪽을 고르시겠습니까? 그 판단의 근거는 데이터입니까, 비용입니까?
-#      내 답:
+#      내 답: 반대로 움직인다. 재현율과 정밀도를 모두 고려하여 비용이 낮은 쪽을 고를 것 같다.
 # TODO
+print("\n[E1]")
 
+for th in [0.5, 0.4, 0.3, 0.2]:
+    judge_th = (p_test >= th).astype(int)
+    TP, FN, FP, TN = four_block(y_test, judge_th)
+    재현율 = TP / (TP + FN) if TP + FN else 0
+    정밀도 = TP / (TP + FP) if TP + FP else 0
+    print(
+        f"임계값 {th} 잡음(TP) {TP} 놓침(FN) {FN} 헛경보(FP) {FP} 재현율 {재현율:.3f} 정밀도 {정밀도:.3f}"
+    )
 
 # =====================================================================
 # F. 함정 1 — "이 558행은 정말 558번의 독립된 관측인가"
@@ -194,10 +284,41 @@ print(te)
 #        te2 = np.where(np.isin(세션, 시험세션))[0]
 #      ★ 먼저 예상하고 적으세요. 실행은 그다음에. ★
 #        D 에서 나온 점수보다 조금 떨어질까요? 비슷할까요?
-#      내 예상:
+#      내 예상: 점수가 떨어질 것 같다.
 # TODO
+print("\n[F1]")
+session = d["SESS_ID"].values
+test_session = ["V24-SP1-04", "V24-SP2-04"]
 
+tr2 = np.where(~np.isin(session, test_session))[0]
+te2 = np.where(np.isin(session, test_session))[0]
+X_train_f, X_test_f, y_train_f, y_test_f = (X[tr2], X[te2], y[tr2], y[te2])
 
+mu_f = X_train_f.mean(axis=0)
+std_f = X_train_f.std(axis=0)
+
+Z_train_f = (X_train_f - mu_f) / std_f
+Z_test_f = (X_test_f - mu_f) / std_f
+
+w_f, b_f = train(Z_train_f, y_train_f)
+
+p_train_f = pred(Z_train_f, w_f, b_f)
+p_test_f = pred(Z_test_f, w_f, b_f)
+
+judge_train_f = (p_train_f >= 0.5).astype(int)
+judge_test_f = (p_test_f >= 0.5).astype(int)
+
+train_accuracy_f = np.mean(judge_train_f == y_train_f)
+test_accuracy_f = np.mean(judge_test_f == y_test_f)
+
+TP = np.sum((y_test_f == 1) & (judge_test_f == 1))
+FN = np.sum((y_test_f == 1) & (judge_test_f == 0))
+
+recall = TP / (TP + FN)
+
+print(f"학습용 정확도: {train_accuracy_f:.3f}")
+print(f"시험용 정확도: {test_accuracy_f:.3f}")
+print(f"재현율: {recall:.3f}")
 # [F2] 실행 결과를 보고 답하세요.
 #        (1) 정확도와 재현율이 몇으로 나왔습니까?
 #        (2) 그럼 D 에서 나온 점수는 무엇이었습니까? 모델은 대체 뭘 배운 걸까요?
@@ -206,7 +327,11 @@ print(te)
 #        (3) 이런 걸 '누수(leakage)' 라고 합니다. 실습 2 의 누수와 뭐가 다릅니까?
 #            (실습 2 는 '쓰면 안 되는 열'이 샌 것이었습니다. 여기는요?)
 #        (4) 그럼 애초에 어떤 단위로 나눴어야 했습니까? 한 줄로 적으세요.
-#      내 답:
+#      내 답: (1) 학습용 정확도: 0.610, 시험용 정확도: 0.500, 재현율: 0.000
+#            (2) 학습 데이터에서 이미 본 세션과 매우 유사한 조각을 맞힌 성능
+#            (3) 같은 세션에서 만들어진 유사한 조각이 학습용과 시험용 양쪽에 들어간 그룹 누수
+#            (4) SESS_ID를 기준으로, 하나의 세션 전체가 학습용 또는 시험용 한쪽에만 들어가도록 분할
+
 # TODO
 
 
@@ -221,15 +346,47 @@ print(te)
 #        te3 = np.concatenate([i1[195:210], i0[195:]])
 #      ★ 표준화를 다시 하세요. C 의 mu, sd 를 재사용하면 안 됩니다 (학습용이 바뀌었으니까).
 # TODO
+print("\n[G1]")
+tr3 = np.concatenate([i1[:15], i0[:195]])
+te3 = np.concatenate([i1[195:210], i0[195:]])
 
+X_train_g, X_test_g, y_train_g, y_test_g = X[tr3], X[te3], y[tr3], y[te3]
 
+mu_g = X_train_g.mean(axis=0)
+std_g = X_train_g.std(axis=0)
+
+Z_train_g = (X_train_g - mu_g) / std_g
+Z_test_g = (X_test_g - mu_g) / std_g
+
+w_g, b_g = train(Z_train_g, y_train_g)
+
+p_train_g = pred(Z_train_g, w_g, b_g)
+p_test_g = pred(Z_test_g, w_g, b_g)
+
+judge_train_g = (p_train_g >= 0.5).astype(int)
+judge_test_g = (p_test_g >= 0.5).astype(int)
+
+train_accuracy_g = np.mean(judge_train_g == y_train_g)
+test_accuracy_g = np.mean(judge_test_g == y_test_g)
+
+TP = np.sum((y_test_g == 1) & (judge_test_g == 1))
+FN = np.sum((y_test_g == 1) & (judge_test_g == 0))
+
+recall = TP / (TP + FN)
+print(TP)
+print(f"학습용 정확도: {train_accuracy_g:.3f}")
+print(f"시험용 정확도: {test_accuracy_g:.3f}")
+print(f"재현율: {recall:.3f}")
 # [G2] 답하세요.
 #        (1) 정확도가 D 보다 올랐습니까, 내렸습니까?
 #        (2) 재현율은요? 2호기 15건 중 몇 건을 잡았습니까?
 #        (3) 정확도는 올랐는데 쓸모는 없어졌습니다. 왜 이런 일이 생깁니까?
 #        (4) 이걸 고치려면 뭘 할 수 있을까요? 최소 두 가지.
 #            힌트 하나는 E 에서 이미 해 봤습니다.
-#      내 답:
+#      내 답: (1) D보다 올라갔다.
+#            (2) 2건
+#            (3) 정확도가 높아졌지만 모델이 다수 클래스만 예측하는 방향으로 치우쳐 소수 클래스인 2호기의 재현율이 하락
+#            (4) 임계값 줄이기, 클래스 가중치 적용
 # TODO
 
 
